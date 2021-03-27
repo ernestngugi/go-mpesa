@@ -1,4 +1,4 @@
-package main
+package mpesa
 
 import (
 	"bytes"

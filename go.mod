@@ -1,3 +1,3 @@
-module github.com/ernestngugi/go-mpesa
+module mpesa
 
 go 1.16

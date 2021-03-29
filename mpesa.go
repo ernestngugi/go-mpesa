@@ -30,7 +30,7 @@ type Oauth struct {
 func token() string {
 	cred := base64.StdEncoding.Strict().EncodeToString([]byte(CONSUMER_KEY + ":" + CONSUMER_SECRET))
 	client := &http.Client{}
-	req, err := http.NewRequest("GET", SANDBOX+"oauth/v1/generate?grant_type=client_credentials", nil)
+	req, err := http.NewRequest(http.MethodGet, SANDBOX+"oauth/v1/generate?grant_type=client_credentials", nil)
 
 	if err != nil {
 		fmt.Println(err.Error())
@@ -73,7 +73,7 @@ func stk(phone string) string {
 		"TransactionDesc":   "test",
 	}
 	jsonValue, _ := json.Marshal(jsonData)
-	req, err := http.NewRequest("POST", SANDBOX+"mpesa/stkpush/v1/processrequest", bytes.NewBuffer(jsonValue))
+	req, err := http.NewRequest(http.MethodPost, SANDBOX+"mpesa/stkpush/v1/processrequest", bytes.NewBuffer(jsonValue))
 
 	if err != nil {
 		fmt.Println(err)
@@ -105,7 +105,7 @@ func C2BRegister() string {
 	}
 	jsonValue, _ := json.Marshal(jsonData)
 
-	req, err := http.NewRequest("POST", SANDBOX+"mpesa/c2b/v1/registerurl", bytes.NewBuffer(jsonValue))
+	req, err := http.NewRequest(http.MethodPost, SANDBOX+"mpesa/c2b/v1/registerurl", bytes.NewBuffer(jsonValue))
 
 	if err != nil {
 		fmt.Println(err)
@@ -138,7 +138,7 @@ func C2BRequest() {
 	}
 	jsonValue, _ := json.Marshal(jsonData)
 
-	req, err := http.NewRequest("POST", SANDBOX+"mpesa/c2b/v1/simulate", bytes.NewBuffer(jsonValue))
+	req, err := http.NewRequest(http.MethodPost, SANDBOX+"mpesa/c2b/v1/simulate", bytes.NewBuffer(jsonValue))
 	if err != nil {
 		fmt.Println(err)
 	}
@@ -180,7 +180,7 @@ func pull_Register() string {
 	}
 	jsonValue, _ := json.Marshal(jsonData)
 
-	req, err := http.NewRequest("POST", SANDBOX+"pulltransactions/v1/register", bytes.NewBuffer(jsonValue))
+	req, err := http.NewRequest(http.MethodPost, SANDBOX+"pulltransactions/v1/register", bytes.NewBuffer(jsonValue))
 	if err != nil {
 		panic(err)
 	}
@@ -207,7 +207,7 @@ func Pull_Transaction() string {
 	}
 	jsonValue, _ := json.Marshal(jsonData)
 
-	req, err := http.NewRequest("POST", SANDBOX+"pulltransactions/v1/query", bytes.NewBuffer(jsonValue))
+	req, err := http.NewRequest(http.MethodPost, SANDBOX+"pulltransactions/v1/query", bytes.NewBuffer(jsonValue))
 
 	if err != nil {
 		panic(err)

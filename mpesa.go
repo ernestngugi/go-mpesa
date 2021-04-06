@@ -7,80 +7,189 @@ import (
 	"fmt"
 	"io/ioutil"
 	"net/http"
-	"time"
+	"regexp"
+	"strconv"
+	"strings"
+
+	"github.com/ttacon/libphonenumber"
 )
 
 const (
-	PRODUCTION             = "https://api.safaricom.co.ke/"
-	SANDBOX                = "https://sandbox.safaricom.co.ke/"
-	CONSUMER_KEY           = "1WyPp7K9UoSABpf0JaXuQUYOX7V4xC3T"
-	CONSUMER_SECRET        = "0CGmzKJAHZJtWuGS"
-	PAYBILL                = "174379"
-	PASS_KEY               = "bfb279f9aa9bdbcf158e97dd71a467cd2e0c893059b10f78e6b72ada1ed2c919"
-	CustomerPayBillOnline  = "CustomerPayBillOnline"
-	CustomerBuyGoodsOnline = "CustomerBuyGoodsOnline"
-	STK_CALLBACK           = "https://peternjeru.co.ke/safdaraja/api/callback.php"
+	ContentType = "application/json"
 )
+
+type Credentials struct {
+	Environment     string
+	CONSUMER_KEY    string
+	CONSUMER_SECRET string
+	PASS_KEY        string
+	PAYBILL         string
+	CALLBACK_URL    string
+	CONFIRM_URL     string
+	VALIDATE_URL    string
+}
 
 type Oauth struct {
 	Token  string `json:"access_token"`
 	Expire string `json:"expires_in"`
 }
+type STK_Request struct {
+	BusinessShortCode string
+	Password          string
+	Timestamp         string
+	TransactionType   string
+	Amount            string
+	PartyA            string
+	PartyB            string
+	PhoneNumber       string
+	CallBackURL       string
+	AccountReference  string
+	TransactionDesc   string
+}
 
-func token() string {
-	cred := base64.StdEncoding.Strict().EncodeToString([]byte(CONSUMER_KEY + ":" + CONSUMER_SECRET))
+type C2B_reg struct {
+	ShortCode       string
+	ResponseType    string
+	ConfirmationURL string
+	ValidationURL   string
+}
+
+type C2B_Register struct {
+	ShortCode       string
+	ResponseType    string
+	ConfirmationURL string
+	ValidationURL   string
+}
+
+type C2B_Request struct {
+	ShortCode     string
+	CommandID     string
+	Amount        string
+	Msisdn        string
+	BillRefNumber string
+}
+
+type Pull_Reg struct {
+	ShortCode       string
+	RequestType     string
+	NominatedNumber string
+	CallBackURL     string
+}
+
+type Pull_trans struct {
+	ShortCode   string
+	StartDate   string
+	EndDate     string
+	OffSetValue string
+}
+
+func (c *Credentials) Creds() (tok string, er error) {
+	if c.CONSUMER_KEY == "" {
+		er = fmt.Errorf("consumer key cannot be empty")
+		return
+	}
+	if c.CONSUMER_SECRET == "" {
+		er = fmt.Errorf("consumer secret cannot be empty")
+		return
+	}
+
+	switch c.Environment {
+	case "sandbox", "production":
+		break
+	default:
+		er = fmt.Errorf("available are: sandbox or production")
+		return
+	}
+	return
+}
+
+func (c *Credentials) Token() (oauth *Oauth, err error) {
+	token := &Oauth{}
+	var URI string
+	switch c.Environment {
+	case "production":
+		URI = "https://api.safaricom.co.ke/"
+	case "sandbox":
+		URI = "https://sandbox.safaricom.co.ke/"
+	default:
+		return
+	}
+	cred := base64.StdEncoding.Strict().EncodeToString([]byte(c.CONSUMER_KEY + ":" + c.CONSUMER_SECRET))
 	client := &http.Client{}
-	req, err := http.NewRequest(http.MethodGet, SANDBOX+"oauth/v1/generate?grant_type=client_credentials", nil)
+	req, err := http.NewRequest(http.MethodGet, URI+"oauth/v1/generate?grant_type=client_credentials", nil)
 
 	if err != nil {
-		fmt.Println(err.Error())
+		return
 	}
 	req.Header.Add("Authorization", "Basic "+cred)
 	resp, err := client.Do(req)
 
 	if err != nil {
-		fmt.Println(err.Error())
+		return
 	}
 	defer resp.Body.Close()
 	bodyBytes, _ := ioutil.ReadAll(resp.Body)
 
-	var responseObject Oauth
+	err = json.Unmarshal(bodyBytes, token)
 
-	json.Unmarshal(bodyBytes, &responseObject)
-	tok := responseObject.Token
-
-	return tok
+	return token, err
 }
 
-func stk(phone string) string {
+func (c *Credentials) Stk(s *STK_Request) (str string, err error) {
+	var URI string
+	token, _ := c.Token()
 	client := &http.Client{}
-
-	t := time.Now()
-	tf := t.Format("20060102150405")
-	cred := base64.StdEncoding.Strict().EncodeToString([]byte(PAYBILL + PASS_KEY + tf))
-
-	jsonData := map[string]string{
-		"BusinessShortCode": PAYBILL,
-		"Password":          cred,
-		"Timestamp":         tf,
-		"TransactionType":   CustomerPayBillOnline,
-		"Amount":            "1",
-		"PartyA":            phone,
-		"PartyB":            "174379",
-		"PhoneNumber":       phone,
-		"CallBackURL":       STK_CALLBACK,
-		"AccountReference":  "account",
-		"TransactionDesc":   "test",
+	code := regexp.MustCompile("^[0-9]+$")
+	if !code.MatchString(s.BusinessShortCode) {
+		err = fmt.Errorf("invalid shortcode")
+		return
 	}
-	jsonValue, _ := json.Marshal(jsonData)
-	req, err := http.NewRequest(http.MethodPost, SANDBOX+"mpesa/stkpush/v1/processrequest", bytes.NewBuffer(jsonValue))
+
+	num, _ := libphonenumber.Parse(s.PhoneNumber, "KE")
+	natSigNumber := libphonenumber.GetNationalSignificantNumber(num)
+
+	if len(natSigNumber) > 9 {
+		err = fmt.Errorf("provided number is not in KE")
+		fmt.Println(err)
+		return
+	}
+
+	switch s.TransactionType {
+	case "CustomerPayBillOnline", "CustomerBuyGoodsOnline":
+		break
+	default:
+		err = fmt.Errorf("available options are: customerpaybillonline or customerbuygoodsonline")
+		return
+	}
+
+	if s.CallBackURL == "" {
+		err = fmt.Errorf("callback is empty")
+		return
+	}
+
+	if s.Amount < strconv.Itoa(1) {
+		err = fmt.Errorf("amount cannot be less than 1")
+		return
+	}
+	switch c.Environment {
+	case "production":
+		URI = "https://api.safaricom.co.ke/"
+	case "sandbox":
+		URI = "https://sandbox.safaricom.co.ke/"
+	default:
+		return
+	}
+
+	jsonValue, _ := json.Marshal(s)
+
+	req, err := http.NewRequest(http.MethodPost, URI+"mpesa/stkpush/v1/processrequest", bytes.NewBuffer(jsonValue))
 
 	if err != nil {
 		fmt.Println(err)
 	}
 
-	req.Header.Add("Authorization", "Bearer "+token())
-	req.Header.Add("Content-Type", "application/json")
+	req.Header.Add("Authorization", "Bearer "+token.Token)
+	req.Header.Add("Content-Type", ContentType)
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -91,72 +200,53 @@ func stk(phone string) string {
 
 	byteData, _ := ioutil.ReadAll(resp.Body)
 
-	return string(byteData)
+	return string(byteData), err
 }
 
-func C2BRegister() string {
+func (c *Credentials) C2BRegister(c2b *C2B_reg) (strr string, err error) {
+	var URI string
+	token, _ := c.Token()
+	switch c.Environment {
+	case "production":
+		URI = "https://api.safaricom.co.ke/"
+	case "sandbox":
+		URI = "https://sandbox.safaricom.co.ke/"
+	default:
+		return
+	}
 	client := &http.Client{}
 
-	jsonData := map[string]string{
-		"ShortCode":       "601426",
-		"ResponseType":    "Completed",
-		"ConfirmationURL": "https://saas1.apartmentaly.com/confirmation",
-		"ValidationURL":   "https://saas1.apartmentaly.com/validate",
-	}
-	jsonValue, _ := json.Marshal(jsonData)
+	jsonValue, _ := json.Marshal(c2b)
 
-	req, err := http.NewRequest(http.MethodPost, SANDBOX+"mpesa/c2b/v1/registerurl", bytes.NewBuffer(jsonValue))
+	req, err := http.NewRequest(http.MethodPost, URI+"mpesa/c2b/v1/registerurl", bytes.NewBuffer(jsonValue))
 
 	if err != nil {
-		fmt.Println(err)
+		return
 	}
-	req.Header.Add("Authorization", "Bearer "+token())
+	req.Header.Add("Authorization", "Bearer "+token.Token)
 	req.Header.Add("Content-Type", "application/json")
 
 	resp, err := client.Do(req)
 
 	if err != nil {
-		fmt.Println(err)
+		return
 	}
 
 	defer resp.Body.Close()
 
 	byteData, _ := ioutil.ReadAll(resp.Body)
 
-	return string(byteData)
-}
-
-func C2BRequest() {
-	client := &http.Client{}
-
-	jsonData := map[string]string{
-		"ShortCode":     "601426",
-		"CommandID":     CustomerPayBillOnline,
-		"Amount":        "1",
-		"Msisdn":        "254708374149",
-		"BillRefNumber": "account",
-	}
-	jsonValue, _ := json.Marshal(jsonData)
-
-	req, err := http.NewRequest(http.MethodPost, SANDBOX+"mpesa/c2b/v1/simulate", bytes.NewBuffer(jsonValue))
-	if err != nil {
-		fmt.Println(err)
-	}
-	fmt.Println(token())
-	req.Header.Add("Authorization", "Bearer "+token())
-	req.Header.Add("Content-Type", "application/json")
-
-	resp, err := client.Do(req)
-
-	if err != nil {
-		fmt.Println(err)
-	}
-	byteValue, _ := ioutil.ReadAll(resp.Body)
-	fmt.Println(string(byteValue))
+	return string(byteData), err
 }
 
 func C2BCallback(r http.ResponseWriter, req *http.Request) {
-	fmt.Println("called")
+	ips := req.Header.Get("X-FORWARDED-FOR")
+	iprange := strings.Split("196.201.214.200,196.201.214.206,196.201.213.114,196.201.214.207,196.201.214.208,196.201.213.44,196.201.212.127,196.201.212.128,196.201.212.129,196.201.212.132,196.201.212.136,196.201.212.138", ",")
+	for _, ip := range iprange {
+		if ips != ip {
+			break
+		}
+	}
 	body, err := ioutil.ReadAll(req.Body)
 	if err != nil {
 		panic(err)
@@ -170,58 +260,67 @@ func C2BCallback(r http.ResponseWriter, req *http.Request) {
 	r.Write(jsonVaue)
 }
 
-func pull_Register() string {
+func (c *Credentials) Pull_Register(p *Pull_Reg) (str string, err error) {
+	var URI string
+	token, _ := c.Token()
+	switch c.Environment {
+	case "production":
+		URI = "https://api.safaricom.co.ke/"
+	case "sandbox":
+		URI = "https://sandbox.safaricom.co.ke/"
+	default:
+		return
+	}
 	client := &http.Client{}
-	jsonData := map[string]string{
-		"ShortCode":       "600000",
-		"RequestType":     "Pull",
-		"NominatedNumber": "0722000000",
-		"CallBackURL":     "https://peternjeru.co.ke/safdaraja/api/callback.php",
-	}
-	jsonValue, _ := json.Marshal(jsonData)
+	jsonValue, _ := json.Marshal(p)
 
-	req, err := http.NewRequest(http.MethodPost, SANDBOX+"pulltransactions/v1/register", bytes.NewBuffer(jsonValue))
+	req, err := http.NewRequest(http.MethodPost, URI+"pulltransactions/v1/register", bytes.NewBuffer(jsonValue))
 	if err != nil {
-		panic(err)
+		return
 	}
-	req.Header.Add("Authorization", "Bearer "+token())
+	req.Header.Add("Authorization", "Bearer "+token.Token)
 	req.Header.Add("Content-Type", "application/json")
 	resp, err := client.Do(req)
 
 	if err != nil {
-		panic(err)
+		return
 	}
 	defer resp.Body.Close()
 
 	byteData, _ := ioutil.ReadAll(resp.Body)
-	return string(byteData)
+	return string(byteData), err
 }
 
-func Pull_Transaction() string {
-	client := &http.Client{}
-	jsonData := map[string]string{
-		"ShortCode":   "600000",
-		"StartDate":   "2020-08-04 8:36:00",
-		"EndDate":     "2020-08-16 10:10:000",
-		"OffSetValue": "0",
+func (c *Credentials) Pull_Transaction(p *Pull_trans) (str string, err error) {
+	var URI string
+	token, _ := c.Token()
+	switch c.Environment {
+	case "production":
+		URI = "https://api.safaricom.co.ke/"
+	case "sandbox":
+		URI = "https://sandbox.safaricom.co.ke/"
+	default:
+		return
 	}
-	jsonValue, _ := json.Marshal(jsonData)
+	client := &http.Client{}
 
-	req, err := http.NewRequest(http.MethodPost, SANDBOX+"pulltransactions/v1/query", bytes.NewBuffer(jsonValue))
+	jsonValue, _ := json.Marshal(p)
+
+	req, err := http.NewRequest(http.MethodPost, URI+"pulltransactions/v1/query", bytes.NewBuffer(jsonValue))
 
 	if err != nil {
-		panic(err)
+		return
 	}
-	req.Header.Add("Authorization", "Bearer "+token())
-	req.Header.Add("Content-Type", "application/json")
+	req.Header.Add("Authorization", "Bearer "+token.Token)
+	req.Header.Add("Content-Type", ContentType)
 	resp, err := client.Do(req)
 
 	if err != nil {
-		panic(err)
+		return
 	}
 	defer resp.Body.Close()
 
 	byteValue, _ := ioutil.ReadAll(resp.Body)
 
-	return string(byteValue)
+	return string(byteValue), err
 }
